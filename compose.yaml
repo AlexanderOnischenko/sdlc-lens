@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sdlc_lens
+      POSTGRES_USER: sdlc_lens
+      POSTGRES_PASSWORD: ${SDLC_LENS_DB_PASSWORD:-local-development-only}
+    volumes:
+      - sdlc_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sdlc_lens -d sdlc_lens"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sdlc-lens:
+    build: .
+    command: ["--repo", "/source", "--database-url", "postgresql+psycopg://sdlc_lens:${SDLC_LENS_DB_PASSWORD:-local-development-only}@postgres:5432/sdlc_lens", "serve", "--host", "0.0.0.0", "--port", "8080"]
+    volumes:
+      - ${TOURISTICO_PATH:-../Touristico}:/source:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    profiles: ["tracing"]
+    environment:
+      PHOENIX_WORKING_DIR: /phoenix-data
+    volumes:
+      - phoenix_data:/phoenix-data
+    ports:
+      - "127.0.0.1:6006:6006"
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.112.0
+    profiles: ["tracing"]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      - phoenix
+    restart: unless-stopped
+
+volumes:
+  sdlc_postgres:
+  phoenix_data:
